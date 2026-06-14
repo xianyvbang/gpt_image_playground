@@ -18,8 +18,10 @@ import { shouldUseApiProxy } from './devProxy'
 import { readRuntimeEnv } from './runtimeEnv'
 
 export const FIXED_OPENAI_BASE_URL = 'https://sub2api.xybbz.xyz/v1'
+const RAW_DEFAULT_API_URL = readRuntimeEnv(import.meta.env.VITE_DEFAULT_API_URL)
 const DEFAULT_OPENAI_API_PROXY = readRuntimeEnv(import.meta.env.VITE_API_PROXY_AVAILABLE) === 'true'
 const DEFAULT_BASE_URL = FIXED_OPENAI_BASE_URL
+const SHOW_DEFAULT_CONFIG_ONLY = readRuntimeEnv(import.meta.env.VITE_SHOW_DEFAULT_CONFIG_ONLY) === 'true'
 export const DEFAULT_IMAGES_MODEL = 'gpt-image-2'
 export const DEFAULT_RESPONSES_MODEL = 'gpt-5.5'
 export const DEFAULT_FAL_BASE_URL = 'https://fal.run'
@@ -71,6 +73,10 @@ export function normalizeAgentMaxToolRounds(value: unknown, fallback: number | u
   const numeric = typeof value === 'number' ? value : Number(value)
   if (!Number.isFinite(numeric)) return fallbackValue
   return Math.min(50, Math.max(1, Math.trunc(numeric)))
+}
+
+export function isDefaultConfigOnlyEnabled(): boolean {
+  return SHOW_DEFAULT_CONFIG_ONLY && (Boolean(RAW_DEFAULT_API_URL) || DEFAULT_OPENAI_API_PROXY)
 }
 
 function normalizeReferenceImageEditAction(value: unknown): ReferenceImageEditAction {
