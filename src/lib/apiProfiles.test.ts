@@ -5,8 +5,10 @@ import {
   DEFAULT_IMAGES_MODEL,
   DEFAULT_OPENAI_PROFILE_ID,
   DEFAULT_SETTINGS,
+  FIXED_OPENAI_BASE_URL,
   createDefaultOpenAIProfile,
   createDefaultFalProfile,
+  enforceOpenAIActiveProfile,
   getActiveApiProfile,
   findEquivalentApiProfile,
   importCustomProviderDefinitionFromJson,
@@ -38,6 +40,69 @@ describe('validateApiProfile', () => {
       apiKey: 'test-key',
       apiProxy: true,
     }))).toBe('缺少 API URL')
+  })
+})
+
+describe('fixed OpenAI base URL', () => {
+  it('normalizes saved OpenAI profiles to the fixed base URL', () => {
+    const settings = normalizeSettings({
+      profiles: [{
+        id: 'openai-custom',
+        name: 'OpenAI Custom',
+        provider: 'openai',
+        baseUrl: 'https://api.example.com/v1',
+        apiKey: 'test-key',
+        model: DEFAULT_IMAGES_MODEL,
+        timeout: 300,
+        apiMode: 'images',
+        codexCli: false,
+        apiProxy: false,
+      }],
+      activeProfileId: 'openai-custom',
+    })
+
+    expect(settings.profiles[0]?.baseUrl).toBe(FIXED_OPENAI_BASE_URL)
+    expect(settings.baseUrl).toBe(FIXED_OPENAI_BASE_URL)
+  })
+
+  it('keeps custom provider base URLs editable', () => {
+    const settings = normalizeSettings({
+      customProviders: [{
+        id: 'custom-json',
+        name: 'Custom JSON',
+        submit: { path: 'images/generations' },
+      }],
+      profiles: [{
+        id: 'custom-profile',
+        name: 'Custom Profile',
+        provider: 'custom-json',
+        baseUrl: 'https://custom.example.com/v1',
+        apiKey: 'custom-key',
+        model: 'custom-model',
+        timeout: 300,
+        apiMode: 'images',
+        codexCli: false,
+        apiProxy: false,
+      }],
+      activeProfileId: 'custom-profile',
+    })
+
+    expect(settings.profiles[0]?.baseUrl).toBe('https://custom.example.com/v1')
+  })
+
+  it('forces the active profile back to OpenAI while keeping historical profiles', () => {
+    const settings = enforceOpenAIActiveProfile({
+      profiles: [
+        createDefaultFalProfile({ id: 'fal-only', apiKey: 'fal-key' }),
+      ],
+      activeProfileId: 'fal-only',
+      reuseTaskApiProfileTemporarily: true,
+    })
+
+    expect(settings.activeProfileId).toBe(DEFAULT_OPENAI_PROFILE_ID)
+    expect(settings.profiles.some((profile) => profile.provider === 'openai')).toBe(true)
+    expect(settings.profiles.some((profile) => profile.provider === 'fal')).toBe(true)
+    expect(settings.reuseTaskApiProfileTemporarily).toBe(false)
   })
 })
 

@@ -18,7 +18,7 @@ import type {
   ResponsesOutputItem,
 } from './types'
 import { DEFAULT_AGENT_MAX_TOOL_ROUNDS, DEFAULT_PARAMS } from './types'
-import { DEFAULT_SETTINGS, getActiveApiProfile, getCustomProviderDefinition, mergeImportedSettings, normalizeSettings, validateApiProfile } from './lib/apiProfiles'
+import { DEFAULT_SETTINGS, FIXED_OPENAI_BASE_URL, enforceOpenAIActiveProfile, getActiveApiProfile, getCustomProviderDefinition, mergeImportedSettings, normalizeSettings, validateApiProfile } from './lib/apiProfiles'
 import { dismissAllTooltips } from './lib/tooltipDismiss'
 import { remapImageMentionsForOrder, replaceImageMentionsForApi } from './lib/promptImageMentions'
 import {
@@ -707,7 +707,7 @@ function mergePersistedState(persistedState: unknown, currentState: AppState): A
   if (!persistedState || typeof persistedState !== 'object') return currentState
 
   const persisted = persistedState as Partial<AppState>
-  const settings = normalizeSettings(persisted.settings ?? currentState.settings)
+  const settings = enforceOpenAIActiveProfile(persisted.settings ?? currentState.settings)
   const hasPersistedAgentConversations = Array.isArray(persisted.agentConversations)
   if (hasPersistedAgentConversations && normalizeAgentConversations(persisted.agentConversations).length > 0) {
     agentConversationMigrationPending = true
@@ -1228,7 +1228,7 @@ export const useStore = create<AppState>()(
             profile.id === merged.activeProfileId
               ? {
                   ...profile,
-                  baseUrl: incoming.baseUrl ?? profile.baseUrl,
+                  baseUrl: profile.provider === 'openai' ? FIXED_OPENAI_BASE_URL : (incoming.baseUrl ?? profile.baseUrl),
                   apiKey: incoming.apiKey ?? profile.apiKey,
                   model: incoming.model ?? profile.model,
                   timeout: incoming.timeout ?? profile.timeout,
@@ -1241,13 +1241,12 @@ export const useStore = create<AppState>()(
               : profile,
           )
         }
-        const settings = normalizeSettings(merged)
-        const shouldClearReusedProfile = st.reusedTaskApiProfileId && settings.activeProfileId === st.reusedTaskApiProfileId
+        const settings = enforceOpenAIActiveProfile(merged)
         return {
           settings,
-          ...(shouldClearReusedProfile
-            ? { reusedTaskApiProfileId: null, reusedTaskApiProfileName: null, reusedTaskApiProfileMissing: false }
-            : {}),
+          reusedTaskApiProfileId: null,
+          reusedTaskApiProfileName: null,
+          reusedTaskApiProfileMissing: false,
         }
       }),
       dismissedCodexCliPrompts: [],
@@ -2257,7 +2256,7 @@ export async function submitTask(options: { allowFullMask?: boolean; useCurrentA
   const { settings, prompt, inputImages, maskDraft, params, reusedTaskApiProfileId, reusedTaskApiProfileName, reusedTaskApiProfileMissing, showToast, setConfirmDialog } =
     useStore.getState()
 
-  const normalizedSettings = normalizeSettings(settings)
+  const normalizedSettings = enforceOpenAIActiveProfile(settings)
   let activeProfile = getActiveApiProfile(settings)
   let requestSettings = createSettingsForApiProfile(normalizedSettings, activeProfile)
   if (normalizedSettings.reuseTaskApiProfileTemporarily && (reusedTaskApiProfileId || reusedTaskApiProfileMissing)) {
@@ -4526,21 +4525,14 @@ export async function retryTask(task: TaskRecord) {
 
 /** 复用配置 */
 export async function reuseConfig(task: TaskRecord) {
-  const { settings, setPrompt, setParams, setInputImages, setMaskDraft, clearMaskDraft, showToast, setConfirmDialog, setReusedTaskApiProfile } = useStore.getState()
-  const normalizedSettings = normalizeSettings(settings)
+  const { settings, setPrompt, setParams, setInputImages, setMaskDraft, clearMaskDraft, showToast, setReusedTaskApiProfile } = useStore.getState()
+  const normalizedSettings = enforceOpenAIActiveProfile(settings)
   const currentProfile = getActiveApiProfile(settings)
-  const matchedProfile = normalizedSettings.reuseTaskApiProfileTemporarily ? getTaskApiProfile(normalizedSettings, task) : null
-  const shouldTemporarilyReuseProfile = Boolean(matchedProfile && matchedProfile.id !== currentProfile.id)
-  const missingReusedProfile = normalizedSettings.reuseTaskApiProfileTemporarily && !matchedProfile
-  const taskProfileName = matchedProfile?.name ?? getTaskApiProfileName(task)
-  const paramsSettings = shouldTemporarilyReuseProfile && matchedProfile ? createSettingsForApiProfile(normalizedSettings, matchedProfile) : normalizedSettings
+  const taskProfileName = getTaskApiProfileName(task)
+  const paramsSettings = normalizedSettings
 
   setParams(normalizeParamsForSettings(task.params, paramsSettings, { hasInputImages: task.inputImageIds.length > 0 }))
-  setReusedTaskApiProfile(
-    shouldTemporarilyReuseProfile && matchedProfile ? matchedProfile.id : null,
-    missingReusedProfile,
-    taskProfileName,
-  )
+  setReusedTaskApiProfile(null, false, taskProfileName)
   clearMaskDraft()
 
   // 恢复输入图片
@@ -4568,25 +4560,7 @@ export async function reuseConfig(task: TaskRecord) {
   } else {
     clearMaskDraft()
   }
-  if (missingReusedProfile) {
-    setConfirmDialog({
-      title: '找不到 API 配置',
-      message: `找不到复用任务所使用的 API 配置「${taskProfileName}」，要使用当前的 API 配置「${currentProfile.name}」提交任务吗？`,
-      confirmText: '使用当前配置提交',
-      cancelText: '放弃提交',
-      action: () => {
-        void submitTask({ useCurrentApiProfileWhenReusedMissing: true })
-      },
-    })
-    return
-  }
-
-  showToast(
-    shouldTemporarilyReuseProfile && matchedProfile
-      ? `已临时复用该任务的 API 配置「${matchedProfile.name}」`
-      : '已复用配置到输入框',
-    'success',
-  )
+  showToast(`已复用配置到输入框，当前仍使用 API 配置「${currentProfile.name}」`, 'success')
 }
 
 /** 编辑输出：将输出图加入输入 */

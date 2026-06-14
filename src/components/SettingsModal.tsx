@@ -11,6 +11,8 @@ import {
   DEFAULT_OPENAI_PROFILE_ID,
   DEFAULT_RESPONSES_MODEL,
   DEFAULT_SETTINGS,
+  enforceOpenAIActiveProfile,
+  FIXED_OPENAI_BASE_URL,
   findEquivalentApiProfile,
   getApiProviderLabel,
   getActiveApiProfile,
@@ -21,7 +23,6 @@ import {
   normalizeCustomProviderDefinition,
   normalizeSettings,
   normalizeStreamPartialImages,
-  switchApiProfileProvider,
 } from '../lib/apiProfiles'
 import { copyTextToClipboard, getClipboardFailureMessage } from '../lib/clipboard'
 import { requestBrowserNotificationPermission, type BrowserNotificationPermissionResult } from '../lib/browserNotification'
@@ -38,7 +39,6 @@ function newId(prefix: string) {
   return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`
 }
 
-const ADD_CUSTOM_PROVIDER_VALUE = '__add_custom_provider__'
 const COPY_IMPORT_URL_OPTIONS_STORAGE_KEY = 'gpt-image-playground.copy-import-url-options'
 
 const DEFAULT_COPY_IMPORT_URL_OPTIONS = {
@@ -297,8 +297,6 @@ export default function SettingsModal() {
   const setShowSettings = useStore((s) => s.setShowSettings)
   const settings = useStore((s) => s.settings)
   const setSettings = useStore((s) => s.setSettings)
-  const reusedTaskApiProfileId = useStore((s) => s.reusedTaskApiProfileId)
-  const setReusedTaskApiProfile = useStore((s) => s.setReusedTaskApiProfile)
   const setConfirmDialog = useStore((s) => s.setConfirmDialog)
   const showToast = useStore((s) => s.showToast)
   const importInputRef = useRef<HTMLInputElement>(null)
@@ -358,42 +356,12 @@ export default function SettingsModal() {
   const activeProfile = draft.profiles.find((profile) => profile.id === draft.activeProfileId) ?? draft.profiles[0] ?? getActiveApiProfile(draft)
   const activeProviderIsOpenAICompatible = isOpenAICompatibleProvider(draft, activeProfile.provider)
   const activeProviderUsesApiUrl = activeProviderIsOpenAICompatible || activeProfile.provider === 'fal'
+  const activeProfileUsesFixedOpenAIBaseUrl = activeProfile.provider === 'openai'
   const activeCustomProvider = draft.customProviders.find((provider) => provider.id === activeProfile.provider)
   const activeProfileApiProxyEligible = isProfileApiProxyEligible(draft, activeProfile)
   const activeCustomProviderAsync = isAsyncCustomProvider(activeCustomProvider)
   const apiProxyChecked = activeProfileApiProxyEligible && (apiProxyLocked || activeProfile.apiProxy)
   const apiProxyEnabled = apiProxyAvailable && activeProfileApiProxyEligible && apiProxyChecked
-  const defaultProviderOrder = ['openai', 'fal', ...draft.customProviders.map(p => p.id)]
-  const providerOrder = draft.providerOrder || defaultProviderOrder
-
-  const unorderedProviderOptions = [
-    { label: 'OpenAI 兼容接口', value: 'openai', draggable: true },
-    { label: 'fal.ai', value: 'fal', draggable: true },
-    ...draft.customProviders.map((provider) => ({
-      label: provider.name,
-      value: provider.id,
-      draggable: true,
-      actions: [
-        { label: '编辑', onClick: () => openEditCustomProvider(provider) },
-        {
-          label: '删除',
-          variant: 'danger' as const,
-          onClick: () => confirmDeleteCustomProvider(provider),
-        },
-      ],
-    })),
-  ]
-
-  const providerOptions = [
-    { label: '创建自定义服务商', value: ADD_CUSTOM_PROVIDER_VALUE, variant: 'action' as const },
-    ...unorderedProviderOptions.sort((a, b) => {
-      const aIndex = providerOrder.indexOf(String(a.value))
-      const bIndex = providerOrder.indexOf(String(b.value))
-      const validA = aIndex !== -1 ? aIndex : defaultProviderOrder.indexOf(String(a.value))
-      const validB = bIndex !== -1 ? bIndex : defaultProviderOrder.indexOf(String(b.value))
-      return validA - validB
-    })
-  ]
 
   const getDefaultModelForMode = (apiMode: AppSettings['apiMode']) =>
     apiMode === 'responses' ? DEFAULT_RESPONSES_MODEL : DEFAULT_IMAGES_MODEL
@@ -416,15 +384,12 @@ export default function SettingsModal() {
     if (wasSettingsOpenRef.current) return
 
     wasSettingsOpenRef.current = true
-    const normalizedSettings = normalizeSettings(settings)
-    const displaySettings = normalizedSettings.reuseTaskApiProfileTemporarily && reusedTaskApiProfileId && normalizedSettings.profiles.some((profile) => profile.id === reusedTaskApiProfileId)
-      ? normalizeSettings({ ...normalizedSettings, activeProfileId: reusedTaskApiProfileId })
-      : normalizedSettings
-    const nextDraft = normalizeSettings({
-      ...displaySettings,
-      profiles: displaySettings.profiles.map((profile) => ({
+    const normalizedSettings = enforceOpenAIActiveProfile(settings)
+    const nextDraft = enforceOpenAIActiveProfile({
+      ...normalizedSettings,
+      profiles: normalizedSettings.profiles.map((profile) => ({
         ...profile,
-        apiProxy: isProfileApiProxyEligible(displaySettings, profile) && apiProxyAvailable
+        apiProxy: isProfileApiProxyEligible(normalizedSettings, profile) && apiProxyAvailable
           ? (apiProxyLocked || profile.apiProxy)
           : false,
       })),
@@ -432,7 +397,7 @@ export default function SettingsModal() {
     setDraft(nextDraft)
     setTimeoutInput(String(getActiveApiProfile(nextDraft).timeout))
     setAgentMaxToolRoundsInput(String(nextDraft.agentMaxToolRounds))
-  }, [apiProxyAvailable, apiProxyLocked, showSettings, settings, reusedTaskApiProfileId])
+  }, [apiProxyAvailable, apiProxyLocked, showSettings, settings])
 
   useEffect(() => {
     setTimeoutInput(String(activeProfile.timeout))
@@ -535,7 +500,7 @@ export default function SettingsModal() {
       }
     })
     const fallbackProfile = createDefaultOpenAIProfile({ id: newId('openai') })
-    const normalizedDraft = normalizeSettings({
+    const normalizedDraft = enforceOpenAIActiveProfile({
       ...nextDraft,
       profiles: normalizedProfiles.length ? normalizedProfiles : [fallbackProfile],
       activeProfileId: normalizedProfiles.some((profile) => profile.id === nextDraft.activeProfileId)
@@ -567,8 +532,6 @@ export default function SettingsModal() {
     url.hash = ''
 
     if (profile.provider === 'openai') {
-      const baseUrl = profile.baseUrl.trim() || DEFAULT_SETTINGS.baseUrl
-      url.searchParams.set('apiUrl', options.useNewApiAddress && !options.includeApiKey ? '{address}' : normalizeBaseUrl(baseUrl))
       if (options.includeApiKey && profile.apiKey.trim()) {
         url.searchParams.set('apiKey', profile.apiKey.trim())
       } else if (!options.includeApiKey && options.useNewApiKey) {
@@ -584,7 +547,6 @@ export default function SettingsModal() {
 
       let result = url.toString()
       if (!options.includeApiKey) {
-        if (options.useNewApiAddress) result = result.replace('%7Baddress%7D', '{address}')
         if (options.useNewApiKey) result = result.replace('%7Bkey%7D', '{key}')
         if (options.useNewApiModel) result = result.replace('%7Bmodel%7D', '{model}')
       }
@@ -752,9 +714,8 @@ export default function SettingsModal() {
   }
 
   const createNewProfile = () => {
-    setReusedTaskApiProfile(null)
     const profile = createDefaultOpenAIProfile({ id: newId('openai'), name: '新配置' })
-    const nextDraft = normalizeSettings({ 
+    const nextDraft = enforceOpenAIActiveProfile({ 
         ...draft, 
         profiles: [...draft.profiles, profile],
         activeProfileId: profile.id
@@ -764,14 +725,15 @@ export default function SettingsModal() {
   }
 
   const duplicateActiveProfile = () => {
-    setReusedTaskApiProfile(null)
     setDuplicateProfileTooltipVisible(false)
     const profile: ApiProfile = {
       ...activeProfile,
-      id: newId(activeProfile.provider === 'openai' ? 'openai' : 'profile'),
+      id: newId('openai'),
       name: `${activeProfile.name}（复制）`,
+      provider: 'openai',
+      baseUrl: FIXED_OPENAI_BASE_URL,
     }
-    const nextDraft = normalizeSettings({
+    const nextDraft = enforceOpenAIActiveProfile({
       ...draft,
       profiles: [...draft.profiles, profile],
       activeProfileId: profile.id,
@@ -781,8 +743,9 @@ export default function SettingsModal() {
   }
 
   const switchProfile = (id: string) => {
-    setReusedTaskApiProfile(null)
-    const nextDraft = normalizeSettings({ ...draft, activeProfileId: id })
+    const nextProfile = draft.profiles.find((profile) => profile.id === id)
+    if (!nextProfile || nextProfile.provider !== 'openai') return
+    const nextDraft = enforceOpenAIActiveProfile({ ...draft, activeProfileId: id })
     commitSettings(nextDraft)
     setShowProfileMenu(false)
   }
@@ -926,47 +889,13 @@ export default function SettingsModal() {
 
   const deleteProfile = (id: string) => {
     if (draft.profiles.length <= 1) return
-    if (id === reusedTaskApiProfileId) setReusedTaskApiProfile(null)
     const nextProfiles = draft.profiles.filter((item) => item.id !== id)
-    const nextDraft = normalizeSettings({
+    const nextDraft = enforceOpenAIActiveProfile({
       ...draft,
       profiles: nextProfiles,
       activeProfileId: draft.activeProfileId === id ? nextProfiles[0].id : draft.activeProfileId,
     })
     commitSettings(nextDraft)
-  }
-
-  const handleProviderReorder = (sourceValue: string | number, targetValue: string | number, position: 'before' | 'after' | null) => {
-    const currentOrder = draft.providerOrder || ['openai', 'fal', ...draft.customProviders.map(p => p.id)]
-    const sourceIndex = currentOrder.indexOf(String(sourceValue))
-    const targetIndex = currentOrder.indexOf(String(targetValue))
-    if (sourceIndex < 0 || targetIndex < 0) return
-
-    const newOrder = [...currentOrder]
-    const [removed] = newOrder.splice(sourceIndex, 1)
-
-    let newTargetIndex = targetIndex
-    if (position === 'after') newTargetIndex++
-    if (sourceIndex < targetIndex) newTargetIndex--
-
-    newOrder.splice(newTargetIndex, 0, removed)
-
-    const nextDraft = normalizeSettings({ ...draft, providerOrder: newOrder })
-    commitSettings(nextDraft)
-  }
-
-  const handleProviderTypeChange = (value: string | number) => {
-    if (value === ADD_CUSTOM_PROVIDER_VALUE) {
-      setEditingCustomProviderId(null)
-      setCustomProviderForm(createDefaultCustomProviderForm())
-      setShowCustomProviderImport(true)
-      setCustomProviderImportError(null)
-      return
-    }
-
-    const provider = String(value) as ApiProfile['provider']
-    const customProvider = draft.customProviders.find((item) => item.id === provider)
-    updateActiveProfile(switchApiProfileProvider(activeProfile, provider, customProvider), true)
   }
 
   const updateCustomProviderForm = (patch: Partial<CustomProviderForm>) => {
@@ -1002,7 +931,7 @@ export default function SettingsModal() {
     try {
       const customProvider = buildCustomProviderFromForm()
       if (editingCustomProviderId) {
-        const nextDraft = normalizeSettings({
+        const nextDraft = enforceOpenAIActiveProfile({
           ...draft,
           customProviders: draft.customProviders.map((provider) =>
             provider.id === editingCustomProviderId ? customProvider : provider,
@@ -1016,11 +945,9 @@ export default function SettingsModal() {
         return
       }
 
-      const nextProfile = switchApiProfileProvider(activeProfile, customProvider.id, customProvider)
-      const nextDraft = normalizeSettings({
+      const nextDraft = enforceOpenAIActiveProfile({
         ...draft,
         customProviders: [...draft.customProviders, customProvider],
-        profiles: draft.profiles.map((profile) => profile.id === activeProfile.id ? nextProfile : profile),
       })
       commitSettings(nextDraft)
       setShowCustomProviderImport(false)
@@ -1041,12 +968,9 @@ export default function SettingsModal() {
 
   function deleteCustomProvider(provider: CustomProviderDefinition) {
     const providerId = provider.id
-    const nextDraft = normalizeSettings({
+    const nextDraft = enforceOpenAIActiveProfile({
       ...draft,
       customProviders: draft.customProviders.filter((provider) => provider.id !== providerId),
-      profiles: draft.profiles.map((profile) =>
-        profile.provider === providerId ? switchApiProfileProvider(profile, 'openai') : profile,
-      ),
     })
     commitSettings(nextDraft)
     showToast('服务商已删除', 'success')
@@ -1077,16 +1001,15 @@ export default function SettingsModal() {
         const shouldReplaceActiveProfile = !editingCustomProviderId && isPristineNewOpenAIProfile(activeProfile) && !importedProfileAlreadyExisted
         const switchedToExistingProfile = !shouldReplaceActiveProfile && importedProfileAlreadyExisted
         const nextDraft = shouldReplaceActiveProfile
-          ? normalizeSettings({
+          ? enforceOpenAIActiveProfile({
               ...mergedDraft,
               profiles: mergedDraft.profiles
                 .filter((profile) => profile.id === activeProfile.id || profile.id !== importedProfile.id)
                 .map((profile) => profile.id === activeProfile.id ? { ...importedProfile, id: activeProfile.id } : profile),
               activeProfileId: activeProfile.id,
             })
-          : normalizeSettings({
+          : enforceOpenAIActiveProfile({
               ...mergedDraft,
-              activeProfileId: importedProfile.id,
             })
         setDraft(nextDraft)
         setSettings(nextDraft)
@@ -1319,17 +1242,17 @@ export default function SettingsModal() {
                     <span className="block text-sm text-gray-600 dark:text-gray-300">复用配置时临时复用该任务的 API 配置</span>
                     <button
                       type="button"
-                      onClick={() => commitSettings({ ...draft, reuseTaskApiProfileTemporarily: !draft.reuseTaskApiProfileTemporarily })}
-                      className={`relative inline-flex h-4 w-7 items-center rounded-full transition-colors ${draft.reuseTaskApiProfileTemporarily ? 'bg-blue-500' : 'bg-gray-300 dark:bg-gray-600'}`}
+                      disabled
+                      className="relative inline-flex h-4 w-7 cursor-not-allowed items-center rounded-full bg-gray-300 opacity-60 transition-colors dark:bg-gray-600"
                       role="switch"
-                      aria-checked={draft.reuseTaskApiProfileTemporarily}
+                      aria-checked={false}
                       aria-label="复用配置时临时复用该任务的 API 配置"
                     >
-                      <span className={`inline-block h-3 w-3 transform rounded-full bg-white shadow transition-transform ${draft.reuseTaskApiProfileTemporarily ? 'translate-x-[14px]' : 'translate-x-[2px]'}`} />
+                      <span className="inline-block h-3 w-3 translate-x-[2px] transform rounded-full bg-white shadow transition-transform" />
                     </button>
                   </div>
                   <div data-selectable-text className="text-xs text-gray-500 dark:text-gray-500">
-                    开启后，复用历史任务时会临时使用该任务的 API 配置，找不到该配置时提交会提示；关闭后，会继续使用当前的 API 配置。
+                    当前已固定使用 OpenAI 兼容接口；复用历史任务时不会临时切换到其他服务商配置。
                   </div>
                 </div>
                 <div className="block">
@@ -1549,7 +1472,7 @@ export default function SettingsModal() {
                             </span>
                           </button>
                           <div>
-                            {draft.profiles.map(profile => (
+                            {draft.profiles.filter((profile) => profile.provider === 'openai').map(profile => (
                               <div
                                 key={profile.id}
                                 data-profile-id={profile.id}
@@ -1649,12 +1572,11 @@ export default function SettingsModal() {
               {/* 2. 服务商类型 */}
               <div className="block">
                 <span className="mb-1.5 block text-sm text-gray-600 dark:text-gray-300">服务商类型</span>
-                <Select
-                  value={activeProfile.provider}
-                  onChange={handleProviderTypeChange}
-                  onReorder={handleProviderReorder}
-                  options={providerOptions}
-                  className="w-full rounded-xl border border-gray-200/70 bg-white/60 px-3 py-2.5 text-sm text-gray-700 outline-none transition focus:border-blue-300 dark:border-white/[0.08] dark:bg-white/[0.03] dark:text-gray-200 dark:focus:border-blue-500/50"
+                <input
+                  value="OpenAI 兼容接口"
+                  type="text"
+                  disabled
+                  className="w-full rounded-xl border border-gray-200/70 bg-white/60 px-3 py-2.5 text-sm text-gray-700 opacity-60 outline-none transition cursor-not-allowed dark:border-white/[0.08] dark:bg-white/[0.03] dark:text-gray-200"
                 />
               </div>
 
@@ -1666,20 +1588,32 @@ export default function SettingsModal() {
                   </div>
                   <input
                     value={activeProfile.baseUrl}
-                    onChange={(e) => updateActiveProfile({ baseUrl: e.target.value })}
-                    onBlur={(e) => commitActiveProfilePatch({ baseUrl: e.target.value })}
+                    onChange={(e) => {
+                      if (!activeProfileUsesFixedOpenAIBaseUrl) updateActiveProfile({ baseUrl: e.target.value })
+                    }}
+                    onBlur={(e) => {
+                      if (!activeProfileUsesFixedOpenAIBaseUrl) commitActiveProfilePatch({ baseUrl: e.target.value })
+                    }}
                     type="text"
-                    disabled={apiProxyEnabled}
-                    placeholder={activeProfile.provider === 'fal' ? DEFAULT_FAL_BASE_URL : DEFAULT_SETTINGS.baseUrl}
-                    className={`w-full rounded-xl border border-gray-200/70 bg-white/60 px-3 py-2.5 text-sm text-gray-700 outline-none transition focus:border-blue-300 dark:border-white/[0.08] dark:bg-white/[0.03] dark:text-gray-200 dark:focus:border-blue-500/50 ${apiProxyEnabled ? 'opacity-50 cursor-not-allowed' : ''}`}
+                    disabled={apiProxyEnabled || activeProfileUsesFixedOpenAIBaseUrl}
+                    placeholder={
+                      activeProfile.provider === 'fal'
+                        ? DEFAULT_FAL_BASE_URL
+                        : activeProfile.provider === 'openai'
+                          ? FIXED_OPENAI_BASE_URL
+                          : 'https://api.example.com/v1'
+                    }
+                    className={`w-full rounded-xl border border-gray-200/70 bg-white/60 px-3 py-2.5 text-sm text-gray-700 outline-none transition focus:border-blue-300 dark:border-white/[0.08] dark:bg-white/[0.03] dark:text-gray-200 dark:focus:border-blue-500/50 ${(apiProxyEnabled || activeProfileUsesFixedOpenAIBaseUrl) ? 'opacity-50 cursor-not-allowed' : ''}`}
                   />
                   <div data-selectable-text className="mt-1.5 min-h-[22px] flex items-center text-xs text-gray-500 dark:text-gray-500">
                     {apiProxyEnabled ? (
                       <span className="text-yellow-600 dark:text-yellow-500">已开启代理，实际请求目标由部署端决定，此处设置被忽略。</span>
+                    ) : activeProfileUsesFixedOpenAIBaseUrl ? (
+                      <span>OpenAI 兼容接口已固定为 <code className="bg-gray-100 dark:bg-white/[0.06] px-1 py-0.5 rounded">{FIXED_OPENAI_BASE_URL}</code>。</span>
                     ) : activeProfile.provider === 'fal' ? (
                       <span>默认使用 <code className="bg-gray-100 dark:bg-white/[0.06] px-1 py-0.5 rounded">{DEFAULT_FAL_BASE_URL}</code>；填写自定义地址时将作为 fal.ai 代理 URL。</span>
                     ) : (
-                      <span>支持通过查询参数覆盖：<code className="bg-gray-100 dark:bg-white/[0.06] px-1 py-0.5 rounded">?apiUrl=</code></span>
+                      <span>可填写当前服务商的 API 基础地址。</span>
                     )}
                   </div>
                 </label>
@@ -2356,11 +2290,13 @@ export default function SettingsModal() {
                 <div className="mb-6 rounded-2xl bg-gray-50/80 p-4 dark:bg-white/[0.03] ring-1 ring-black/5 dark:ring-white/5">
                   <div className="text-[13px] font-bold text-gray-700 dark:text-gray-300 mb-3.5">New API 变量配置</div>
                   <div className="space-y-3">
-                    <Checkbox
-                      checked={copyImportUrlOptions.useNewApiAddress}
-                      onChange={(checked) => updateCopyImportUrlOptions({ useNewApiAddress: checked })}
-                      label={<>使用 <code className="mx-0.5 rounded bg-gray-100 px-1.5 py-0.5 text-[0.85em] font-mono text-gray-700 dark:bg-white/[0.08] dark:text-gray-200">{"{address}"}</code> (不含 /v1)</>}
-                    />
+                    {copyImportUrlProfile.provider !== 'openai' && (
+                      <Checkbox
+                        checked={copyImportUrlOptions.useNewApiAddress}
+                        onChange={(checked) => updateCopyImportUrlOptions({ useNewApiAddress: checked })}
+                        label={<>使用 <code className="mx-0.5 rounded bg-gray-100 px-1.5 py-0.5 text-[0.85em] font-mono text-gray-700 dark:bg-white/[0.08] dark:text-gray-200">{"{address}"}</code> (不含 /v1)</>}
+                      />
+                    )}
                     <Checkbox
                       checked={copyImportUrlOptions.useNewApiKey}
                       onChange={(checked) => updateCopyImportUrlOptions({ useNewApiKey: checked })}
