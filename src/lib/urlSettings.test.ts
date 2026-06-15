@@ -371,7 +371,7 @@ describe('URL settings params', () => {
       id: current.activeProfileId,
       provider: 'openai',
       name: '导入配置',
-      baseUrl: 'https://api.example.com/v1',
+      baseUrl: FIXED_OPENAI_BASE_URL,
       apiKey: 'test-key',
       model: 'custom-model',
       apiMode: 'responses',
@@ -419,7 +419,7 @@ describe('URL settings params', () => {
     expect(next.activeProfileId).toBe(current.activeProfileId)
     expect(next.profiles[0]).toMatchObject({
       provider: 'openai',
-      baseUrl: current.profiles[0].baseUrl,
+      baseUrl: FIXED_OPENAI_BASE_URL,
       apiKey: current.profiles[0].apiKey,
       model: current.profiles[0].model,
     })
@@ -479,13 +479,13 @@ describe('URL settings params', () => {
       id: current.activeProfileId,
       provider: 'openai',
       name: 'OpenAI Profile',
-      baseUrl: 'https://openai.example.com/v1',
+      baseUrl: FIXED_OPENAI_BASE_URL,
       apiKey: 'openai-key',
       model: 'openai-model',
       timeout: 120,
       apiMode: 'responses',
       codexCli: true,
-      apiProxy: true,
+      apiProxy: false,
     })
   })
 

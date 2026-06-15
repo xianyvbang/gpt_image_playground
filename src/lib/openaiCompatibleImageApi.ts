@@ -557,8 +557,6 @@ async function callImagesApiSingle(opts: CallApiOptions, profile: ApiProfile): P
     : originalPrompt
   const isEdit = inputImageDataUrls.length > 0
   const mime = MIME_MAP[params.output_format] || 'image/png'
-  const proxyConfig = readClientDevProxyConfig()
-  const useApiProxy = shouldUseApiProxy(profile.apiProxy, proxyConfig)
   const requestHeaders = createRequestHeaders(profile)
   const paths = createOpenAICompatiblePaths()
 
@@ -622,7 +620,7 @@ async function callImagesApiSingle(opts: CallApiOptions, profile: ApiProfile): P
         formData.append('mask', maskBlob, 'mask.png')
       }
 
-      response = await fetch(buildApiUrl(profile.baseUrl, paths.editPath, proxyConfig, useApiProxy), {
+      response = await fetch(buildApiUrl(profile.baseUrl, paths.editPath), {
         method: 'POST',
         headers: requestHeaders,
         cache: 'no-store',
@@ -656,7 +654,7 @@ async function callImagesApiSingle(opts: CallApiOptions, profile: ApiProfile): P
         body.partial_images = getStreamPartialImages(profile)
       }
 
-      response = await fetch(buildApiUrl(profile.baseUrl, paths.generationPath, proxyConfig, useApiProxy), {
+      response = await fetch(buildApiUrl(profile.baseUrl, paths.generationPath), {
         method: 'POST',
         headers: {
           ...requestHeaders,
@@ -1038,8 +1036,6 @@ async function callResponsesImageApi(opts: CallApiOptions, profile: ApiProfile):
 async function callResponsesImageApiSingle(opts: CallApiOptions, profile: ApiProfile): Promise<CallApiResult> {
   const { prompt, params, inputImageDataUrls } = opts
   const mime = MIME_MAP[params.output_format] || 'image/png'
-  const proxyConfig = readClientDevProxyConfig()
-  const useApiProxy = shouldUseApiProxy(profile.apiProxy, proxyConfig)
   const requestHeaders = createRequestHeaders(profile)
   const controller = new AbortController()
   const timeoutId = setTimeout(() => controller.abort(), profile.timeout * 1000)
@@ -1064,7 +1060,7 @@ async function callResponsesImageApiSingle(opts: CallApiOptions, profile: ApiPro
       body.stream = true
     }
 
-    const response = await fetch(buildApiUrl(profile.baseUrl, 'responses', proxyConfig, useApiProxy), {
+    const response = await fetch(buildApiUrl(profile.baseUrl, 'responses'), {
       method: 'POST',
       headers: {
         ...requestHeaders,

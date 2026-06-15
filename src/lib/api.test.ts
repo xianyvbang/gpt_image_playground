@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { DEFAULT_PARAMS } from '../types'
-import { DEFAULT_SETTINGS } from './apiProfiles'
+import { DEFAULT_SETTINGS, FIXED_OPENAI_BASE_URL } from './apiProfiles'
 import { callImageApi } from './api'
 
 describe('callImageApi', () => {
@@ -534,7 +534,7 @@ describe('callImageApi', () => {
     })
   })
 
-  it('uses the same-origin API proxy path when API proxy is enabled', async () => {
+  it('uses the fixed OpenAI API URL when API proxy is enabled', async () => {
     vi.stubEnv('VITE_API_PROXY_AVAILABLE', 'true')
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({
       data: [{ b64_json: 'aW1hZ2U=' }],
@@ -556,12 +556,12 @@ describe('callImageApi', () => {
     })
 
     expect(fetchMock).toHaveBeenCalledWith(
-      '/api-proxy/images/generations',
+      `${FIXED_OPENAI_BASE_URL}/images/generations`,
       expect.objectContaining({ method: 'POST' }),
     )
   })
 
-  it('uses the same-origin API proxy path when API proxy is enabled and base URL is empty', async () => {
+  it('uses the fixed OpenAI API URL when API proxy is enabled and base URL is empty', async () => {
     vi.stubEnv('VITE_API_PROXY_AVAILABLE', 'true')
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({
       data: [{ b64_json: 'aW1hZ2U=' }],
@@ -583,7 +583,7 @@ describe('callImageApi', () => {
     })
 
     expect(fetchMock).toHaveBeenCalledWith(
-      '/api-proxy/images/generations',
+      `${FIXED_OPENAI_BASE_URL}/images/generations`,
       expect.objectContaining({ method: 'POST' }),
     )
   })
@@ -687,7 +687,7 @@ describe('callImageApi', () => {
     expect(fetchMock).not.toHaveBeenCalled()
   })
 
-  it('uses the same-origin API proxy path when API proxy is locked', async () => {
+  it('uses the fixed OpenAI API URL when API proxy is locked', async () => {
     vi.stubEnv('VITE_API_PROXY_AVAILABLE', 'true')
     vi.stubEnv('VITE_API_PROXY_LOCKED', 'true')
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({
@@ -710,7 +710,7 @@ describe('callImageApi', () => {
     })
 
     expect(fetchMock).toHaveBeenCalledWith(
-      '/api-proxy/images/generations',
+      `${FIXED_OPENAI_BASE_URL}/images/generations`,
       expect.objectContaining({ method: 'POST' }),
     )
   })
@@ -759,7 +759,7 @@ describe('callImageApi', () => {
     })
 
     expect(fetchMock).toHaveBeenCalledWith(
-      'http://api.example.com/v1/images/generations',
+      `${FIXED_OPENAI_BASE_URL}/images/generations`,
       expect.objectContaining({ method: 'POST' }),
     )
   })

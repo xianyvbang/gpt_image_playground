@@ -19,7 +19,7 @@ import { readRuntimeEnv } from './runtimeEnv'
 
 export const FIXED_OPENAI_BASE_URL = 'https://sub2api.xybbz.xyz/v1'
 const RAW_DEFAULT_API_URL = readRuntimeEnv(import.meta.env.VITE_DEFAULT_API_URL)
-const DEFAULT_OPENAI_API_PROXY = readRuntimeEnv(import.meta.env.VITE_API_PROXY_AVAILABLE) === 'true'
+const DEFAULT_OPENAI_API_PROXY = false
 const DEFAULT_BASE_URL = FIXED_OPENAI_BASE_URL
 const SHOW_DEFAULT_CONFIG_ONLY = readRuntimeEnv(import.meta.env.VITE_SHOW_DEFAULT_CONFIG_ONLY) === 'true'
 export const DEFAULT_IMAGES_MODEL = 'gpt-image-2'
@@ -300,19 +300,27 @@ export function normalizeCustomProviderDefinitions(input: unknown): CustomProvid
 export function createDefaultOpenAIProfile(overrides: Partial<ApiProfile> = {}): ApiProfile {
   const apiMode = overrides.apiMode ?? 'images'
   const streamImages = overrides.streamImages ?? getDefaultStreamImages('openai', apiMode)
+  const {
+    provider: _provider,
+    baseUrl: _baseUrl,
+    apiProxy: _apiProxy,
+    apiMode: _apiMode,
+    streamImages: _streamImages,
+    ...safeOverrides
+  } = overrides
 
   return {
     id: DEFAULT_OPENAI_PROFILE_ID,
     name: '默认',
     provider: 'openai',
-    baseUrl: DEFAULT_BASE_URL,
+    baseUrl: normalizeOpenAIBaseUrl(),
     apiKey: '',
     model: DEFAULT_IMAGES_MODEL,
     timeout: DEFAULT_API_TIMEOUT,
     codexCli: false,
-    apiProxy: DEFAULT_OPENAI_API_PROXY,
+    apiProxy: false,
     streamPartialImages: DEFAULT_STREAM_PARTIAL_IMAGES,
-    ...overrides,
+    ...safeOverrides,
     apiMode,
     streamImages,
   }
@@ -396,11 +404,11 @@ export function switchApiProfileProvider(profile: ApiProfile, provider: ApiProvi
   return {
     ...profile,
     provider,
-    baseUrl: savedDraft?.baseUrl ?? normalizeOpenAIBaseUrl(),
+    baseUrl: normalizeOpenAIBaseUrl(),
     model: savedDraft?.model ?? DEFAULT_IMAGES_MODEL,
     apiMode: nextApiMode,
     codexCli: savedDraft?.codexCli ?? profile.codexCli,
-    apiProxy: savedDraft?.apiProxy ?? DEFAULT_OPENAI_API_PROXY,
+    apiProxy: false,
     responseFormatB64Json: savedDraft?.responseFormatB64Json,
     streamImages: nextStreamImages,
     streamPartialImages: nextStreamPartialImages,
@@ -426,7 +434,7 @@ function normalizeProviderDraft(input: unknown, provider: ApiProvider, customPro
     model,
     apiMode,
     codexCli: typeof input.codexCli === 'boolean' ? input.codexCli : fallback.codexCli,
-    apiProxy: typeof input.apiProxy === 'boolean' ? input.apiProxy : fallback.apiProxy,
+    apiProxy: provider === 'openai' ? false : typeof input.apiProxy === 'boolean' ? input.apiProxy : fallback.apiProxy,
     responseFormatB64Json: input.responseFormatB64Json === true ? true : undefined,
     streamImages: typeof input.streamImages === 'boolean' ? input.streamImages : fallback.streamImages,
     streamPartialImages: normalizeStreamPartialImages(input.streamPartialImages, fallback.streamPartialImages),
@@ -470,7 +478,7 @@ export function normalizeApiProfile(input: unknown, fallback?: Partial<ApiProfil
     timeout: typeof record.timeout === 'number' && Number.isFinite(record.timeout) ? record.timeout : defaults.timeout,
     apiMode,
     codexCli: Boolean(record.codexCli),
-    apiProxy: typeof record.apiProxy === 'boolean' ? record.apiProxy : defaults.apiProxy,
+    apiProxy: provider === 'openai' ? false : typeof record.apiProxy === 'boolean' ? record.apiProxy : defaults.apiProxy,
     responseFormatB64Json: record.responseFormatB64Json === true ? true : undefined,
     streamImages,
     streamPartialImages: normalizeStreamPartialImages(record.streamPartialImages, defaults.streamPartialImages),
@@ -502,7 +510,7 @@ export function normalizeSettings(input: Partial<AppSettings> | unknown): AppSet
     timeout: typeof record.timeout === 'number' && Number.isFinite(record.timeout) ? record.timeout : DEFAULT_API_TIMEOUT,
     apiMode: legacyApiMode,
     codexCli: Boolean(record.codexCli),
-    apiProxy: typeof record.apiProxy === 'boolean' ? record.apiProxy : DEFAULT_OPENAI_API_PROXY,
+    apiProxy: false,
     responseFormatB64Json: record.responseFormatB64Json === true ? true : undefined,
     streamImages: typeof record.streamImages === 'boolean' ? record.streamImages : undefined,
     streamPartialImages: normalizeStreamPartialImages(record.streamPartialImages),
@@ -653,7 +661,7 @@ export function getActiveApiProfile(settings: Partial<AppSettings> | unknown): A
     timeout: typeof record.timeout === 'number' && Number.isFinite(record.timeout) ? record.timeout : profile.timeout,
     apiMode,
     codexCli: typeof record.codexCli === 'boolean' ? record.codexCli : profile.codexCli,
-    apiProxy: typeof record.apiProxy === 'boolean' ? record.apiProxy : profile.apiProxy,
+    apiProxy: profile.provider === 'openai' ? false : typeof record.apiProxy === 'boolean' ? record.apiProxy : profile.apiProxy,
     streamImages: profile.provider === 'openai' && typeof record.streamImages === 'boolean' ? record.streamImages : profile.streamImages,
     streamPartialImages: normalizeStreamPartialImages(record.streamPartialImages, profile.streamPartialImages),
   }
@@ -661,7 +669,8 @@ export function getActiveApiProfile(settings: Partial<AppSettings> | unknown): A
 
 export function validateApiProfile(profile: ApiProfile): string | null {
   if (!profile.name.trim()) return '缺少名称'
-  if (profile.provider !== 'fal' && !profile.baseUrl.trim() && !shouldUseApiProxy(profile.apiProxy)) return '缺少 API URL'
+  const baseUrl = profile.provider === 'openai' ? normalizeOpenAIBaseUrl() : profile.baseUrl
+  if (profile.provider !== 'fal' && !baseUrl.trim() && !shouldUseApiProxy(profile.apiProxy)) return '缺少 API URL'
   if (!profile.apiKey.trim()) return '缺少 API Key'
   if (!profile.model.trim()) return '缺少模型 ID'
   return null

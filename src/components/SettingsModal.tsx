@@ -360,7 +360,7 @@ export default function SettingsModal() {
   const activeProviderUsesApiUrl = activeProviderIsOpenAICompatible || activeProfile.provider === 'fal'
   const activeProfileUsesFixedOpenAIBaseUrl = activeProfile.provider === 'openai'
   const activeCustomProvider = draft.customProviders.find((provider) => provider.id === activeProfile.provider)
-  const activeProfileApiProxyEligible = isProfileApiProxyEligible(draft, activeProfile)
+  const activeProfileApiProxyEligible = activeProfile.provider !== 'openai' && isProfileApiProxyEligible(draft, activeProfile)
   const activeCustomProviderAsync = isAsyncCustomProvider(activeCustomProvider)
   const apiProxyChecked = activeProfileApiProxyEligible && (apiProxyLocked || activeProfile.apiProxy)
   const apiProxyEnabled = apiProxyAvailable && activeProfileApiProxyEligible && apiProxyChecked
@@ -391,7 +391,7 @@ export default function SettingsModal() {
       ...normalizedSettings,
       profiles: normalizedSettings.profiles.map((profile) => ({
         ...profile,
-        apiProxy: isProfileApiProxyEligible(normalizedSettings, profile) && apiProxyAvailable
+        apiProxy: profile.provider !== 'openai' && isProfileApiProxyEligible(normalizedSettings, profile) && apiProxyAvailable
           ? (apiProxyLocked || profile.apiProxy)
           : false,
       })),
@@ -487,7 +487,7 @@ export default function SettingsModal() {
 
   const commitSettings = (nextDraft: AppSettings) => {
     const normalizedProfiles = nextDraft.profiles.map((profile) => {
-      const nextApiProxy = isProfileApiProxyEligible(nextDraft, profile) && apiProxyAvailable ? (apiProxyLocked || profile.apiProxy) : false
+      const nextApiProxy = profile.provider !== 'openai' && isProfileApiProxyEligible(nextDraft, profile) && apiProxyAvailable ? (apiProxyLocked || profile.apiProxy) : false
       const shouldKeepEmptyBaseUrl = profile.provider !== 'fal' && nextApiProxy && !profile.baseUrl.trim()
       const normalizedBaseUrl = profile.provider === 'fal'
         ? profile.baseUrl.trim().replace(/\/+$/, '') || DEFAULT_FAL_BASE_URL
@@ -1630,7 +1630,7 @@ export default function SettingsModal() {
               )}
 
               {/* 4. API 代理（紧跟 URL） */}
-              {apiProxyAvailable && activeProviderIsOpenAICompatible && !activeCustomProviderAsync && (
+              {apiProxyAvailable && activeProfile.provider !== 'openai' && activeProviderIsOpenAICompatible && !activeCustomProviderAsync && (
                 <div className="block">
                   <div className="mb-1.5 flex items-center justify-between">
                     <span className="block text-sm text-gray-600 dark:text-gray-300">API 代理</span>

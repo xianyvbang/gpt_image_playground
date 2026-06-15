@@ -1,5 +1,5 @@
 import { DEFAULT_AGENT_MAX_TOOL_ROUNDS, DEFAULT_STREAM_PARTIAL_IMAGES, type ApiProfile, type AppSettings, type ResponsesApiResponse, type ResponsesOutputItem, type TaskParams } from '../types'
-import { buildApiUrl, readClientDevProxyConfig, shouldUseApiProxy } from './devProxy'
+import { buildApiUrl } from './devProxy'
 import { appendStreamingFormatHint, maybeAppendStreamingHint, getApiErrorMessage, MIME_MAP, normalizeBase64Image, pickActualParams } from './imageApiShared'
 
 export interface AgentApiResultImage {
@@ -663,8 +663,6 @@ export async function callAgentResponsesApi(opts: {
 }): Promise<AgentApiResult> {
   const { settings, profile, params, input, maskDataUrl, signal, onTextDelta, onOutputItems, onImageToolStarted, onImagePartialImage, onImageToolCompleted, onImageToolFailed } = opts
   const mime = MIME_MAP[params.output_format] || 'image/png'
-  const proxyConfig = readClientDevProxyConfig()
-  const useApiProxy = shouldUseApiProxy(profile.apiProxy, proxyConfig)
   const controller = new AbortController()
   const timeoutId = setTimeout(() => controller.abort(), profile.timeout * 1000)
   const abortFromCaller = () => controller.abort()
@@ -682,7 +680,7 @@ export async function callAgentResponsesApi(opts: {
       body.stream = true
     }
 
-    const response = await fetch(buildApiUrl(profile.baseUrl, 'responses', proxyConfig, useApiProxy), {
+    const response = await fetch(buildApiUrl(profile.baseUrl, 'responses'), {
       method: 'POST',
       headers: createHeaders(profile),
       cache: 'no-store',
@@ -722,8 +720,6 @@ export async function callAgentConversationTitleApi(opts: {
   signal?: AbortSignal
 }): Promise<string> {
   const { settings, profile, prompt, imageDataUrls, signal } = opts
-  const proxyConfig = readClientDevProxyConfig()
-  const useApiProxy = shouldUseApiProxy(profile.apiProxy, proxyConfig)
   const controller = new AbortController()
   const timeoutId = setTimeout(() => controller.abort(), profile.timeout * 1000)
   const abortFromCaller = () => controller.abort()
@@ -738,7 +734,7 @@ export async function callAgentConversationTitleApi(opts: {
       content.push({ type: 'input_image', image_url: dataUrl })
     }
 
-    const response = await fetch(buildApiUrl(profile.baseUrl, 'responses', proxyConfig, useApiProxy), {
+    const response = await fetch(buildApiUrl(profile.baseUrl, 'responses'), {
       method: 'POST',
       headers: createHeaders(profile),
       cache: 'no-store',
@@ -799,8 +795,6 @@ export async function callBatchImageSingle(opts: {
 }): Promise<BatchImageCallResult> {
   const { profile, params, batchItemId, prompt, referenceImageDataUrls, referenceIds, signal, onImageToolStarted, onPartialImage, onImageToolCompleted } = opts
   const mime = MIME_MAP[params.output_format] || 'image/png'
-  const proxyConfig = readClientDevProxyConfig()
-  const useApiProxy = shouldUseApiProxy(profile.apiProxy, proxyConfig)
   const controller = new AbortController()
   const timeoutId = setTimeout(() => controller.abort(), profile.timeout * 1000)
   const abortFromCaller = () => controller.abort()
@@ -855,7 +849,7 @@ export async function callBatchImageSingle(opts: {
       body.stream = true
     }
 
-    const response = await fetch(buildApiUrl(profile.baseUrl, 'responses', proxyConfig, useApiProxy), {
+    const response = await fetch(buildApiUrl(profile.baseUrl, 'responses'), {
       method: 'POST',
       headers: createHeaders(profile),
       cache: 'no-store',

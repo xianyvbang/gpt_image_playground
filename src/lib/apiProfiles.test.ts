@@ -24,22 +24,54 @@ afterEach(() => {
 })
 
 describe('validateApiProfile', () => {
-  it('allows empty API URL when API proxy is enabled and available', () => {
+  it('ignores OpenAI proxy and URL overrides in favor of the fixed URL', () => {
     vi.stubEnv('VITE_API_PROXY_AVAILABLE', 'true')
 
-    expect(validateApiProfile(createDefaultOpenAIProfile({
+    const profile = createDefaultOpenAIProfile({
       baseUrl: '',
       apiKey: 'test-key',
       apiProxy: true,
-    }))).toBeNull()
+    })
+
+    expect(profile.baseUrl).toBe(FIXED_OPENAI_BASE_URL)
+    expect(profile.apiProxy).toBe(false)
+    expect(validateApiProfile(profile)).toBeNull()
   })
 
-  it('still requires API URL when API proxy is unavailable', () => {
-    expect(validateApiProfile(createDefaultOpenAIProfile({
-      baseUrl: '',
-      apiKey: 'test-key',
-      apiProxy: true,
-    }))).toBe('缺少 API URL')
+  it('allows empty custom provider API URL when API proxy is enabled and available', () => {
+    vi.stubEnv('VITE_API_PROXY_AVAILABLE', 'true')
+
+    const profile = normalizeSettings({
+      customProviders: [{ id: 'custom-json', name: 'Custom JSON', submit: { path: 'images/generations' } }],
+      profiles: [{
+        id: 'custom-profile',
+        name: 'Custom Profile',
+        provider: 'custom-json',
+        baseUrl: '',
+        apiKey: 'test-key',
+        model: 'custom-model',
+        apiProxy: true,
+      }],
+    }).profiles[0]
+
+    expect(validateApiProfile(profile)).toBeNull()
+  })
+
+  it('still requires custom provider API URL when API proxy is unavailable', () => {
+    const profile = normalizeSettings({
+      customProviders: [{ id: 'custom-json', name: 'Custom JSON', submit: { path: 'images/generations' } }],
+      profiles: [{
+        id: 'custom-profile',
+        name: 'Custom Profile',
+        provider: 'custom-json',
+        baseUrl: '',
+        apiKey: 'test-key',
+        model: 'custom-model',
+        apiProxy: true,
+      }],
+    }).profiles[0]
+
+    expect(validateApiProfile(profile)).toBe('缺少 API URL')
   })
 })
 
@@ -123,13 +155,13 @@ describe('mergeImportedSettings', () => {
     expect(merged.profiles[0]).toMatchObject({
       id: DEFAULT_OPENAI_PROFILE_ID,
       provider: 'openai',
-      baseUrl: 'https://api.example.com/v1',
+      baseUrl: FIXED_OPENAI_BASE_URL,
       apiKey: 'imported-key',
       model: 'imported-model',
       timeout: 120,
       apiMode: 'responses',
       codexCli: true,
-      apiProxy: true,
+      apiProxy: false,
     })
   })
 
@@ -221,7 +253,7 @@ describe('mergeImportedSettings', () => {
     expect(merged.profiles[0]).toMatchObject({ apiKey: 'current-key', model: 'current-model' })
     expect(merged.profiles[1]).toMatchObject({
       provider: 'openai',
-      baseUrl: 'https://imported.example.com/v1',
+      baseUrl: FIXED_OPENAI_BASE_URL,
       apiKey: 'imported-key',
       model: 'imported-model',
     })
@@ -715,7 +747,7 @@ describe('custom providers', () => {
     expect(normalizeSettings({ agentMathFormattingPrompt: false }).agentMathFormattingPrompt).toBe(false)
   })
 
-  it('restores OpenAI-compatible URL after switching through fal.ai', () => {
+  it('restores the fixed OpenAI URL after switching through fal.ai', () => {
     const openaiProfile = createDefaultOpenAIProfile({
       baseUrl: 'https://api.compat.example.com/v1',
       model: 'custom-openai-model',
@@ -726,7 +758,7 @@ describe('custom providers', () => {
     const restoredProfile = switchApiProfileProvider(falProfile, 'openai')
 
     expect(falProfile.baseUrl).toBe(DEFAULT_FAL_BASE_URL)
-    expect(restoredProfile.baseUrl).toBe('https://api.compat.example.com/v1')
+    expect(restoredProfile.baseUrl).toBe(FIXED_OPENAI_BASE_URL)
     expect(restoredProfile.model).toBe('custom-openai-model')
     expect(restoredProfile.apiProxy).toBe(false)
   })

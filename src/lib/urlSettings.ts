@@ -10,6 +10,7 @@ import {
   normalizeSettings,
   normalizeStreamPartialImages,
 } from './apiProfiles'
+import { normalizeBaseUrl } from './devProxy'
 
 const URL_SETTING_KEYS = ['settings', 'apiUrl', 'apiKey', 'codexCli', 'apiMode', 'model', 'profileName', 'streamImages', 'streamPartialImages']
 
